@@ -1,0 +1,4 @@
+Plugins
+
+mono commands are provided as plugins in »$MONO_PLUGIN_DIR«. You can specify
+another location using the environment variable MONO_PLUGIN_DIR.

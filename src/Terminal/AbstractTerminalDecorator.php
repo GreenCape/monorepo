@@ -27,87 +27,63 @@
  * @since           File available since Release __DEPLOY_VERSION__
  */
 
-namespace GreenCape\MonoRepo\Test;
+namespace GreenCape\MonoRepo\Terminal;
 
-use GreenCape\MonoRepo\Git;
-use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
 
 /**
  *
  *
  * @since  Class available since Release __DEPLOY_VERSION__
  */
-class DevEnvironment
+abstract class AbstractTerminalDecorator implements TerminalInterface
 {
     /**
-     * @var \PHPUnit\Framework\TestCase
-     */
-    private $test;
-
-    /**
-     * @var string
-     */
-    private $path;
-
-    /**
-     * @var \GreenCape\MonoRepo\Git
-     */
-    private $git;
-
-    /**
-     * @var string
-     */
-    private $remote;
-
-    /**
-     * Constructor.
+     * @param  string  $method
+     * @param  array   $arguments
      *
-     * @param  \PHPUnit\Framework\TestCase  $test
-     * @param  string                       $path
+     * @return mixed
      */
-    public function __construct(TestCase $test, string $path)
-    {
-        $this->test = $test;
-        $this->path = $path;
-        $this->git = new Git($this->path);
+    abstract public function decorate(string $method, array $arguments);
 
-        if (!file_exists($this->path . '/.git')) {
-            $this->git->init(false);
-        }
+    public function mkdir(string $directory, int $permissions = 0755): int
+    {
+        return $this->decorate('mkdir', func_get_args());
     }
 
-    /**
-     * @return string
-     */
-    public function getPath(): string
+    public function cd(string $directory): int
     {
-        return $this->path;
+        return $this->decorate('cd', func_get_args());
     }
 
-    /**
-     * @param  string  $name
-     * @param  string  $branch
-     */
-    public function createContent(string $name, string $branch = 'master'): void
+    public function pwd(): string
     {
-        file_put_contents($this->path . '/README.md', "# {$name}\n\nBranch {$branch}\n");
+        return $this->decorate('pwd', func_get_args());
     }
 
-    /**
-     * @param  string  $name
-     * @param  string  $url
-     */
-    public function addRemote(string $name, string $url): void
+    public function rmdir(string $directory): int
     {
-        $this->remote = $name;
-
-        $this->git->addRemote($this->remote, $url);
+        return $this->decorate('rmdir', func_get_args());
     }
 
-    public function commit(string $message): void
+    public function rm(string $filename): int
     {
-        $this->git->add('.');
-        $this->git->commit($message);
-        $this->git->push($this->remote);
+        return $this->decorate('rm', func_get_args());
+    }
+
+    public function pushd(string $directory): int
+    {
+        return $this->decorate('pushd', func_get_args());
+    }
+
+    public function popd(): int
+    {
+        return $this->decorate('popd', func_get_args());
+    }
+
+    public function ls(): string
+    {
+        return $this->decorate('ls', func_get_args());
     }
 }

@@ -1,4 +1,6 @@
+#!/usr/bin/env php
 <?php
+
 /**
  * GreenCape MonoRepo Command Line Interface
  *
@@ -20,57 +22,28 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  *
- * @author          Niels Braczek <nbraczek@bsds.de>
- * @copyright   (C) 2021 GreenCape, Niels Braczek <nbraczek@bsds.de>
- * @license         http://opensource.org/licenses/MIT The MIT license (MIT)
- * @link            http://greencape.github.io
- * @since           File available since Release __DEPLOY_VERSION__
+ * @package   MonoRepo
+ * @author    Niels Braczek <nbraczek@bsds.de.de>.
+ * @copyright 2021 Niels Braczek <nbraczek@bsds.de.de>.
+ * @license   MIT License
+ * @since     File available since Release __DEPLOY_VERSION__
  */
 
-namespace GreenCape\MonoRepo\Test;
+$loaded = false;
 
-use GreenCape\MonoRepo\Git;
-use PHPUnit\Framework\TestCase;
-
-/**
- *
- *
- * @since  Class available since Release __DEPLOY_VERSION__
- */
-class RemoteRepository
-{
-    /**
-     * @var \PHPUnit\Framework\TestCase
-     */
-    private $test;
-
-    /**
-     * @var string
-     */
-    private $path;
-
-    /**
-     * Constructor.
-     *
-     * @param  \PHPUnit\Framework\TestCase  $test
-     * @param  string                       $path
-     */
-    public function __construct(TestCase $test, string $path)
-    {
-        $this->test = $test;
-        $this->path = $path;
-        $git = new Git($this->path);
-
-        if (!file_exists($this->path . '/.git')) {
-            $git->init(true);
-        }
-    }
-
-    /**
-     * @return string
-     */
-    public function getUrl(): string
-    {
-        return $this->path;
+foreach ([__DIR__ . '/../../autoload.php', __DIR__ . '/vendor/autoload.php'] as $file) {
+    if (file_exists($file)) {
+        require $file;
+        $loaded = true;
+        break;
     }
 }
+
+if (!$loaded) {
+    die(
+        'You need to set up the project dependencies using the following commands:' . PHP_EOL . 'wget http://getcomposer.org/composer.phar' . PHP_EOL . 'php composer.phar install' . PHP_EOL
+    );
+}
+
+$console = new \GreenCape\MonoRepo\Application();
+$console->run();

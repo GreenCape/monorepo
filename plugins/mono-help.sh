@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+#  mono add --dir=<directory> <name> <url>
+
+function usage {
+  cat <<-EOT
+Usage: mono help -a|-g
+   or: mono help <command>|<concept>
+
+Get help for a specific command or concept.
+
+Arguments:
+
+  <command>  The command to get information about.
+  <concept>  The concept to get information about.
+
+Options:
+
+  -a  List available commands
+  -g  List available concepts
+
+EOT
+}
+
+function list_commands {
+  echo "Available commands:"
+  echo ""
+  for file in $MONO_PLUGIN_DIR/mono-*.sh; do
+    local f=${file#*/mono-}
+    echo "    ${f/%.sh/}"
+  done
+  echo ""
+  echo "Use 'mono help <command>' to learn more about a specific command"
+}
+
+function list_concepts {
+  echo "Available commands:"
+  echo ""
+  for file in $MONO_PLUGIN_DIR/concepts/*.txt; do
+    local f=${file#*/concepts/}
+    echo "    ${f/%.txt/}"
+  done
+  echo ""
+  echo "Use 'mono help <concept>' to learn more about a specific concept"
+}
+
+case $1 in
+-a)
+  list_commands
+  exit 0
+  ;;
+-g)
+  list_concepts
+  exit 0
+  ;;
+-h|--help)
+  usage
+  exit 0
+  ;;
+*) # unknown option
+  if [[ ${#1} -eq 0 ]]; then
+    usage
+    exit 1
+  fi
+  SUBJECT="$1"
+  ;;
+esac
+
+POSSIBLE_COMMAND_FILE="$MONO_PLUGIN_DIR/mono-$SUBJECT.sh"
+if [[ -f "$POSSIBLE_COMMAND_FILE" ]]; then
+  source "$POSSIBLE_COMMAND_FILE" --help
+  exit 0
+fi
+
+POSSIBLE_CONCEPT_FILE="$MONO_PLUGIN_DIR/concepts/$SUBJECT.txt"
+if [[ -f "$POSSIBLE_CONCEPT_FILE" ]]; then
+  cat "$POSSIBLE_CONCEPT_FILE"
+  exit 0
+fi
+
+usage
+exit 1

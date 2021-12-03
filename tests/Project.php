@@ -29,7 +29,7 @@
 
 namespace GreenCape\MonoRepo\Test;
 
-use PHPUnit\Framework\TestCase;
+use GreenCape\MonoRepo\Terminal\Terminal;
 
 /**
  *
@@ -39,74 +39,105 @@ use PHPUnit\Framework\TestCase;
 class Project
 {
     /**
-     * @var \PHPUnit\Framework\TestCase
-     */
-    private $test;
-
-    /**
      * @var string
      */
     private $name;
 
     /**
-     * @var \GreenCape\MonoRepo\Test\RemoteRepository
+     * @var string
      */
-    private $remoteRepository;
+    private $url;
 
     /**
-     * @var \GreenCape\MonoRepo\Test\DevEnvironment
+     * @var string
      */
-    private $devEnvironment;
+    private $path;
 
     /**
      * Constructor.
      *
      * Create a remote repository and a development environment
      *
-     * @param  \PHPUnit\Framework\TestCase  $test
-     * @param  string                       $name
+     * @param  string  $name
      */
-    public function __construct(TestCase $test, string $name)
+    public function __construct(string $name)
     {
-        $this->test = $test;
         $this->name = $name;
 
         $this->createRemoteRepository(__DIR__ . "/repos/remote/{$name}.git");
-        $this->createDevEnvironment(__DIR__ . "/repos/local/{$name}");
+        $this->createDevEnvironment(__DIR__ . "/repos/local/{$name}", $name, __DIR__ . "/repos/remote/{$name}.git");
     }
 
     /**
+     * Create a bare remote repository
+     *
+     * If $path does not exist, it is created recursively.
+     *
      * @param  string  $path
      */
     protected function createRemoteRepository(string $path): void
     {
-        $this->remoteRepository = new RemoteRepository($this->test, $path);
+        $this->url = $path;
+
+        $cli = new Terminal();
+
+        if (!file_exists($path)) {
+            $cli->mkdir($path);
+        }
+
+        if (!file_exists($path . '/HEAD')) {
+            $cli->exec("git init --bare \"{$path}\"");
+        }
     }
 
     /**
-     * @param  string  $path
+     * @param  string  $path  The path to the development workspace
+     * @param  string  $name  The name of the remote repository
+     * @param  string  $url   The url or path of the remote repository
      */
-    protected function createDevEnvironment(string $path): void
+    protected function createDevEnvironment(string $path, string $name, string $url): void
     {
-        $this->devEnvironment = new DevEnvironment($this->test, $path);
-        $this->devEnvironment->addRemote($this->name, $this->remoteRepository->getUrl());
-        $this->devEnvironment->createContent($this->name, 'master');
-        $this->devEnvironment->commit('docs: Create README');
+        $this->path = $path;
+
+        $cli = new Terminal();
+
+        if (!file_exists($path)) {
+            $cli->mkdir($path);
+        }
+
+        if (!file_exists($path . '/.git')) {
+            $cli->exec("git init");
+        }
+
+        file_put_contents($path . '/README.md', "# {$name}\n\nBranch master\n");
+
+        $cli->exec("git remote add \"{$name}\" \"{$url}\"");
+        $cli->exec("git add --all");
+        $cli->exec("git commit -m \"Create README\"");
+        $cli->exec("git push --set-upstream \"{$name}\" master");
     }
 
     /**
-     * @return \GreenCape\MonoRepo\Test\RemoteRepository
+     * @return string
      */
-    public function getRemoteRepository(): RemoteRepository
+    public function getName(): string
     {
-        return $this->remoteRepository;
+        return $this->name;
     }
 
     /**
-     * @return \GreenCape\MonoRepo\Test\DevEnvironment
+     * @return string
      */
-    public function getDevEnvironment(): DevEnvironment
+    public function getUrl(): string
     {
-        return $this->devEnvironment;
+        return $this->url;
+    }
+
+    /**
+     * @return string
+     */
+    public function getPath(): string
+    {
+        return $this->path;
     }
 }

@@ -28,7 +28,7 @@ Add (create, import) a subproject named `<name>` for the repository at `<url>` s
 **Synopsis**
 
 ```bash
-$ mono add --dir=<directory> <name> <url>
+$ mono add [--name=<name>] <directory> <url>
 ```
 
 -------------
