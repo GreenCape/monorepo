@@ -1,0 +1,184 @@
+#!/usr/bin/env php
+
+<?php
+function usage()
+{
+    echo <<<EOT
+Usage: mono composer <command>
+   or: mono composer -h|--help
+
+Arguments:
+
+    <command>  The subcommand to be executed.
+
+Options:
+
+  -h|--help              Show this help text.
+
+EOT;
+}
+
+$args       = $_SERVER['argv'];
+$command    = preg_replace('~^.*?/mono-~', '', array_shift($args));
+$positional = [];
+while (count($args) > 0) {
+    $arg = array_shift($args);
+    if (preg_match('~^(--?[^ =]+)(?:=(\S*))?$~', $arg, $match)) {
+        switch ($match[1]) {
+            case '-n':
+            case '--name':
+                $name = $match[2] ?? array_shift($args);
+                break;
+            case '-h':
+            case '--help':
+                usage();
+                exit(0);
+            default:
+                echo "Unknown option »{$match[1]}«\n";
+                usage();
+                exit(1);
+        }
+    } else {
+        $positional[] = $arg;
+    }
+}
+
+$name = $name ?? 'combined';
+
+# Get positional arguments
+$subCommand = $positional[0] ?? 'help';
+
+switch ($subCommand) {
+    case 'help':
+        usage();
+        exit(1);
+    case 'merge':
+        echo "Creating global composer.json\n";
+        if (!file_exists('composer.json')) {
+            $globalJson = [
+                'require'      => [],
+                'require-dev'  => [],
+                'suggest'      => [],
+                'conflict'     => [],
+                'autoload'     => [],
+                'autoload-dev' => [],
+            ];
+        } else {
+            $globalJson = json_decode(file_get_contents('composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        }
+
+        foreach (getSubtrees() as $subtree) {
+            $composerJson = $subtree['prefix'] . '/composer.json';
+            if (!file_exists($composerJson)) {
+                echo "No composer.json file in {$subtree['prefix']}\n";
+                continue;
+            }
+
+            $localJson  = json_decode(file_get_contents($composerJson), true, 512, JSON_THROW_ON_ERROR);
+            $globalJson = mergeSections($globalJson, $localJson, getSubtrees());
+        }
+        echo str_replace('\\/', '/', json_encode($globalJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)) . "\n";
+        break;
+}
+
+echo "$command: Done.\n\n";
+
+function getSubtrees()
+{
+    return array_reduce(array_unique(file('.git/subtrees')), static function ($result, $line) {
+        [$remoteName, $prefix, $remoteUrl] = explode(' ', $line);
+        $composerJson                   = $prefix . '/composer.json';
+        if (!file_exists($composerJson)) {
+            // No composer.json => nothing to do
+            return $result;
+        }
+        $json                  = json_decode(
+            file_get_contents($composerJson),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $result[$json['name']] = [
+            'name'   => $remoteName,
+            'prefix' => $prefix,
+            'url'    => $remoteUrl,
+        ];
+
+        return $result;
+    },                  []);
+}
+
+function mergeSections(array $global, array $local, array $subtrees): array
+{
+    foreach (['require', 'require-dev'] as $section) {
+        if (!isset($local[$section])) {
+            // Nothing to do, if section is not declared
+            continue;
+        }
+
+        foreach ($local[$section] as $dependency => $versionConstraint) {
+            if (isset($subtrees[$dependency])) {
+                // This is a local dependency, nothing to do
+                continue;
+            }
+
+            if (!isset($global[$section][$dependency])) {
+                // Not in global json yet, so take this
+                $global[$section][$dependency] = $versionConstraint;
+            } else {
+                // Compute common versions
+                $global[$section][$dependency] = intersectConstraint(
+                    $global[$section][$dependency],
+                    $versionConstraint
+                );
+            }
+        }
+    }
+
+    if (isset($local['conflict'])) {
+        $global['conflict'] = mergeConflicts($global['conflict'], $local['conflict'], $subtrees);
+    }
+
+    foreach (['autoload', 'autoload-dev'] as $autoload) {
+        if (!isset($local[$autoload])) {
+            // Nothing to do, section is not declared
+            continue;
+        }
+        foreach ($local[$autoload] as $method => $assignment) {
+            switch ($method) {
+                case 'psr-0':
+                    foreach ($assignment as $namespace => $path) {
+                        $global[$autoload][$method][$namespace] = rtrim(
+                            $subtrees[$local['name']]['prefix'] . '/' . $path,
+                            '/'
+                        );
+                    }
+                    break;
+                case 'psr-4':
+                    foreach ($assignment as $namespace => $path) {
+                        $global[$autoload][$method][$namespace] = $subtrees[$local['name']]['prefix'] . '/' . $path;
+                    }
+                    break;
+                case 'files':
+                    foreach ($assignment as $path) {
+                        $global[$autoload][$method][] = $subtrees[$local['name']]['prefix'] . '/' . $path;
+                    }
+                    break;
+                default:
+                    echo "Unknown autoload method $method\n";
+            }
+        }
+    }
+
+    return $global;
+}
+
+function mergeConflicts(array $global, array $local, array $subtrees): array
+{
+    return $global;
+}
+
+function intersectConstraint(string $dependency, string $versionConstraint): string
+{
+    return $versionConstraint;
+}

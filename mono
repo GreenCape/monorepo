@@ -124,4 +124,4 @@ if [ ! -f "$MONO_PLUGIN_FILE" ]; then
 fi
 
 shift
-source "$MONO_PLUGIN_FILE"
+"$MONO_PLUGIN_FILE" $@

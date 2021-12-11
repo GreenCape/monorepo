@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-#  mono add --dir=<directory> <name> <url>
 
 usage () {
   cat <<-EOT
