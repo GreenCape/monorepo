@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+if [ -f $PWD/mono.conf ]; then
+  source $PWD/mono.conf
+fi
+MONO_FULL_NAME="MonoRepo Tool"
+MONO_VERSION="0.0.1"
+MONO_AUTHOR="GreenCape, Niels Braczek"
+MONO_COPYRIGHT_YEAR="2021"
+MONO_PLUGIN_DIR=${MONO_PLUGIN_DIR:-/.local/share/monorepo}
+MONO_PREFIX=${MONO_PREFIX:-"packages/"}
+
+# Needed to enable parsing of strings returned by commands
+export LANG=en_US.UTF-8
+
+hello () {
+  echo "$MONO_FULL_NAME $MONO_VERSION by $MONO_AUTHOR"
+  echo ""
+}
+
+version () {
+  echo "$MONO_FULL_NAME $MONO_VERSION"
+  echo "(C)$MONO_COPYRIGHT_YEAR $MONO_AUTHOR"
+}
+
+usage () {
+  hello
+  cat <<EOT
+Usage: mono [-h|--help] [-v|--version]
+   or: mono <command> [<arguments>]
+
+'mono help -a' and 'mono help -g' list available commands and some
+instructions on mono concepts respectively. Use 'mono help <command>'
+or 'mono help <concept>' to learn more about a specific command or concept.
+EOT
+}
+
+get_remote_branches () {
+  local REMOTE_NAME="$1"
+  local REMOTE_DIR=.git/refs/remotes/"$REMOTE_NAME"
+  REMOTE_BRANCHES=""
+  if [ -d "$REMOTE_DIR" ]; then
+    ls $REMOTE_DIR
+  fi
+}
+
+get_main_branch () {
+  local REMOTE_NAME="$1"
+  git remote show $REMOTE_NAME | grep 'HEAD branch' | cut -d' ' -f5
+}
+
+find_matching_branch () {
+  local REMOTE_NAME="$1"
+  local LOCAL_BRANCH="$2"
+
+  REMOTE_BRANCHES=$(get_remote_branches "$REMOTE_NAME")
+
+  if [ ${#REMOTE_BRANCHES} -ne 0 ]; then
+    for b in $REMOTE_BRANCHES; do
+      if [[ "$b" == "$LOCAL_BRANCH" ]]; then
+        BRANCH="$b"
+        break
+      fi
+    done
+  fi
+  echo "${BRANCH:-HEAD}"
+}
+
+get_local_branches () {
+  ls .git/refs/heads
+}
+
+get_subtrees () {
+  git log | grep git-subtree-dir | tr -d ' ' | cut -d ":" -f2 | sort | uniq | xargs -I {} bash -c 'if [ -d $(git rev-parse --show-toplevel)/{} ]; then echo {}; fi'
+}
+
+get_prefix () {
+  REMOTE_NAME="$1"
+  grep -w "$REMOTE_NAME" < .git/subtrees |
+  while read remote_name prefix remote_url; do
+    echo "$prefix"
+    break;
+  done
+}
+
+require_work_tree () {
+	test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true || {
+		echo "This operation can not be used without a working tree."
+		exit 1
+	}
+}
+
+ensure_clean () {
+	if ! git diff-index HEAD --exit-code --quiet 2>&1; then
+		echo "Working tree has modifications.  Cannot add."
+		exit 1
+	fi
+	if ! git diff-index --cached HEAD --exit-code --quiet 2>&1; then
+		echo "Index has modifications.  Cannot add."
+		exit 1
+	fi
+}
+
+case $1 in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -v | --version)
+    version
+    exit 0
+    ;;
+  *)
+    MONO_COMMAND=$1
+    ;;
+esac
+
+MONO_PLUGIN_FILE="$MONO_PLUGIN_DIR/mono-$MONO_COMMAND"
+
+if [ ! -f "$MONO_PLUGIN_FILE" ]; then
+  # Plugin does not exist
+  echo "mono: '$MONO_COMMAND' is not a mono command. See 'mono --help'.";
+  exit 1
+fi
+
+shift
+source "$MONO_PLUGIN_FILE"

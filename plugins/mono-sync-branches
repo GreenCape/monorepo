@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+usage () {
+  cat <<-EOT
+Usage: mono sync-branches [-h|--help]
+
+Options:
+
+  -h|--help              Show this help text.
+
+EOT
+}
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *) # unknown option
+    echo "Unknown option »$1«"
+    usage
+    exit 1
+    ;;
+  esac
+done
+
+ensure_clean
+
+MONOREPO_MASTER_BRANCH=$(get_main_branch origin)
+echo "Main branch in monorepo is '$MONOREPO_MASTER_BRANCH'"
+# for each subproject
+for REMOTE_NAME in $(awk '{print $1}' < .git/subtrees); do
+  echo "Processing subproject $REMOTE_NAME"
+  # get subproject branches
+  SUBPROJECT_MASTER_BRANCH=$(get_main_branch "$REMOTE_NAME")
+  echo "Main branch in $REMOTE_NAME is '$SUBPROJECT_MASTER_BRANCH'"
+  # for each subproject branch
+  for BRANCH in $(get_remote_branches $REMOTE_NAME); do
+    echo "Processing branch '$BRANCH'"
+    # if subproject branch is not master
+    if [[ "$SUBPROJECT_MASTER_BRANCH" != "$BRANCH" ]]; then
+      echo "It is not the main branch"
+      # if monorepo has branch
+      if [[ "$(get_local_branches)" =~ (^|[[:space:]])$BRANCH($|[[:space:]]) ]]; then
+        # checkout monorepo branch
+        echo "Checkout existing branch $BRANCH"
+        git checkout $BRANCH
+      # else
+      else
+        # create monorepo branch from master
+        echo "Checkout new branch $BRANCH from $MONOREPO_MASTER_BRANCH"
+        git checkout -b $BRANCH $MONOREPO_MASTER_BRANCH
+      # endif
+      fi
+    # endif
+    fi
+    # pull subproject branch
+    echo "Pulling subproject $REMOTE_NAME, branch $BRANCH"
+    DIRECTORY=$(get_prefix "$REMOTE_NAME")
+    git subtree pull --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH"
+  # endfor
+  done
+#endfor
+done
+git checkout $MONOREPO_MASTER_BRANCH
+
+echo "Done."

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+usage () {
+  cat <<-EOT
+Usage: mono remove <name>
+   or: mono remove -h|--help
+
+
+Arguments:
+
+    <name>    The name of the remote associated to the subproject.
+    <prefix>  The directory to containing the subproject. Defaults to
+              the repository name of the subproject prefixed by
+              $MONO_PREFIX.
+
+Options:
+
+  -h|--help              Show this help text.
+
+EOT
+}
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -*) # unknown option
+    echo "Unknown option »$1«"
+    usage
+    exit 1
+    ;;
+  *)
+    POSITIONAL+=("$1") # save it in an array for later
+    shift              # past argument
+    ;;
+  esac
+done
+
+# Get positional arguments
+REMOTE_NAME=${POSITIONAL[0]}
+DIRECTORY=$(get_prefix "$REMOTE_NAME")
+
+ensure_clean
+
+echo "Removing $DIRECTORY from repository"
+git filter-repo --force --invert-paths --path "$DIRECTORY" || exit 1
+
+echo "Pruning orphaned commits"
+git gc --prune=now --aggressive || exit 1
+
+echo "Removing remote reference"
+git remote remove "$REMOTE_NAME" || exit 1
+mv .git/subtrees .git/subtrees.bak || exit 1
+grep -w -v "$REMOTE_NAME" < .git/subtrees.bak > .git/subtrees || exit 1
+
+echo "Done."

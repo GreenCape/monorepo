@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-function usage {
+usage () {
   cat <<-EOT
-Usage: mono add [--name=<name>] [--branch=<branch>] <directory> <repository>
+Usage: mono add [options] <repository> [<prefix>]
    or: mono add -h|--help
 
-Create the <directory> subtree by importing its contents from the given
+Create the <prefix> subtree by importing its contents from the given
 <repository> and remote <branch>. A new commit is created
 automatically, joining the imported project’s history with your own.
 With --squash, imports only a single commit from the subproject, rather
@@ -13,20 +13,23 @@ than its entire history.
 
 Arguments:
 
-    <directory>   The directory to contain the imported subproject.
     <repository>  The repository url or directory name of the subproject.
+    <prefix>      The directory to contain the imported subproject. Defaults to
+                  the repository name of the imported subproject prefixed by
+                  $MONO_PREFIX.
 
 Options:
 
   -n|--name=<name>       The name of the subproject. Defaults to the repository
                          name of the imported subproject.
-  -b|--branch=<branch>   A valid remote ref
+  -b|--branch=<branch>   A valid remote ref, defaults to branch with the same name as the local branch.
   --squash               Merge subtree changes as a single commit.
   -h|--help              Show this help text.
 
 EOT
 }
 
+OPT_SQUASH=
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -57,7 +60,7 @@ while [[ $# -gt 0 ]]; do
     exit 0
     ;;
   -*) # unknown option
-    echo "Unknown option »$1«"
+    echo "$MONO_COMMAND: Unknown option »$1«"
     usage
     exit 1
     ;;
@@ -68,23 +71,36 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-DIRECTORY=${POSITIONAL[0]}
-REMOTE_URL=${POSITIONAL[1]}
-BRANCH=${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}
+# Get positional arguments
+REMOTE_URL=${POSITIONAL[0]}
+DIRECTORY=${POSITIONAL[1]}
+
+require_work_tree
+ensure_clean
+
 if [[ ${#REMOTE_NAME} -eq 0 ]]; then
   REMOTE_NAME=$(basename "${REMOTE_URL/%.git/}")
 fi
-echo "Remote name: $REMOTE_NAME"
-echo "Branch:      $BRANCH"
-echo "Directory:   $DIRECTORY"
-echo "REMOTE_URL:  $REMOTE_URL"
-echo "Squash:      $OPT_SQUASH"
 
-# Check if REMOTE_NAME already exists, then
-git remote add "$REMOTE_NAME" "$REMOTE_URL"
+if [[ ${#DIRECTORY} -eq 0 ]]; then
+  DIRECTORY="$MONO_PREFIX$REMOTE_NAME"
+fi
 
-# Get the default branch of the remote
-DEFAULT_BRANCH=$(git remote show "$REMOTE_NAME" | grep 'HEAD branch' | cut -d' ' -f5)
-echo "Default branch: $DEFAULT_BRANCH"
+echo "$MONO_COMMAND: Checking for remote reference $REMOTE_NAME"
+git ls-remote --exit-code "$REMOTE_NAME" &>/dev/null
+if [[ $? -eq 0 ]]; then
+  echo "$MONO_COMMAND: Remote »$REMOTE_NAME« already exists, pointing to $(git remote get-url "$REMOTE_NAME")"
+else
+  echo "$MONO_COMMAND: Adding remote reference"
+  git remote add "$REMOTE_NAME" --no-tags "$REMOTE_URL" || exit 1
+fi
 
-echo "git subtree add$OPT_OPT_SQUASH --prefix=$DIRECTORY $REMOTE_NAME $BRANCH"
+BRANCH=${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}
+
+echo "$MONO_COMMAND: Adding subtree from branch $BRANCH"
+git subtree add --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH" $OPT_SQUASH
+touch .git/subtrees
+echo "$REMOTE_NAME $DIRECTORY $REMOTE_URL" >> .git/subtrees
+
+echo "$MONO_COMMAND: Done."
+echo ""

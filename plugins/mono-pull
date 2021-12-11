@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat <<-EOT
+Usage: mono pull [options] <repository> <ref>
+   or: mono pull -h|--help
+
+Pull recent changes fetches the given <ref> from the specified remote <repository> into the
+corresponding subtree. As with normal git pull, this doesn’t remove your own local changes;
+it just merges those changes into the latest <local-commit>.
+With --squash, create only one commit that contains all the changes, rather than merging in
+the entire history.
+
+Arguments:
+
+    <repository>  The repository url or directory name of the subproject.
+    <ref>         The remote reference. Defaults to current branch.
+
+Options:
+
+  --squash               Merge subtree changes as a single commit.
+  -h|--help              Show this help text.
+
+EOT
+}
+
+OPT_SQUASH=
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  --squash)
+    OPT_SQUASH=" --squash"
+    shift # past argument
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -*) # unknown option
+    echo "Unknown option »$1«"
+    usage
+    exit 1
+    ;;
+  *)
+    POSITIONAL+=("$1") # save it in an array for later
+    shift              # past argument
+    ;;
+  esac
+done
+
+# Get positional arguments
+REMOTE_NAME=${POSITIONAL[0]}
+BRANCH=${POSITIONAL[1]}
+
+require_work_tree
+ensure_clean
+
+if [[ ${#REMOTE_NAME} -eq 0 ]]; then
+  echo "$MONO_COMMAND: Remote name is required"
+  exit 1
+fi
+
+DIRECTORY=$(get_prefix "$REMOTE_NAME")
+echo "$MONO_COMMAND: Prefix: $DIRECTORY"
+BRANCH=${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}
+echo "$MONO_COMMAND: Branch: $BRANCH"
+
+echo "$MONO_COMMAND: Pulling subtree from branch $BRANCH"
+git subtree pull --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH" $OPT_SQUASH
+
+echo "$MONO_COMMAND: Done."
+echo ""
