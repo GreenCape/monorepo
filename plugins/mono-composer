@@ -180,6 +180,18 @@ function mergeSections(array $global, array $local, array $subtrees): array
         $global['require-dev'],
         'compareDependencies'
     );
+    if (isset($global['suggest'])) {
+        uksort(
+            $global['suggest'],
+            'compareDependencies'
+        );
+    }
+    if (isset($global['conflict'])) {
+        uksort(
+            $global['conflict'],
+            'compareDependencies'
+        );
+    }
 
     return $global;
 }
@@ -204,7 +216,11 @@ function mergeSuggestions(array $global, array $local, array $subtrees): array
 function mergeConflicts(array $global, array $local, array $subtrees): array
 {
     foreach ($local['conflict'] as $dependency => $constraint) {
-        echo "Conflicting $dependency => $constraint\n";
+        if (isset($subtrees[$dependency])) {
+            // This is a local dependency, nothing to do
+            continue;
+        }
+
         if (!isset($global['conflict'][$dependency])) {
             $global['conflict'][$dependency] = $constraint;
             continue;
@@ -220,7 +236,7 @@ function mergeConstraints(string $constraint1, string $constraint2): string
     echo "Merging $constraint1 and $constraint2\n";
     $ranges1 = constraintToRanges($constraint1);
     $ranges2 = constraintToRanges($constraint2);
-    $ranges = mergeAllRanges([...$ranges1, ...$ranges2]);
+    $ranges  = mergeAllRanges([...$ranges1, ...$ranges2]);
 
     $constraint = rangesToConstraint($ranges);
     echo "Merging $constraint1 and $constraint2 => $constraint\n";
@@ -278,6 +294,12 @@ function rangesToConstraint(array $ranges)
             }
             if ($stability !== null) {
                 $constraint .= "@$stability";
+            }
+            $constraints[] = $constraint;
+        } elseif ((int)$lowerMajor === 0 && (int)$lowerMinor === 0 && (int)$lowerPatch === 0) {
+            $constraint = "<$upperMajor.$upperMinor";
+            if ((int)$upperPatch !== 0) {
+                $constraint .= ".$upperPatch";
             }
             $constraints[] = $constraint;
         } else {
@@ -340,7 +362,7 @@ function constraintToRanges(string $constraints): array
     $ranges = [];
     foreach (explode('|', $constraints) as $constraint) {
         if (preg_match(
-            '~^(\D+)?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[@-](.+))?$~',
+            '~^(\D+)?(\d+)(?:\.(x|\d+))?(?:\.(x|\d+))?(?:[@-](.+))?$~',
             $constraint,
             $match,
             PREG_UNMATCHED_AS_NULL
@@ -386,6 +408,11 @@ function constraintToRanges(string $constraints): array
                     $upperBound = $major . '.' . ($minor ?? 0) . '.' . ($patch ?? 0);
                     $ranges[]   = ['lower' => $lowerBound, 'upper' => $upperBound];
                     break;
+                case null:
+                    $lowerBound = '0.0.0';
+                    $upperBound = '999.999.999';
+                    $ranges[]   = ['lower' => $lowerBound, 'upper' => $upperBound];
+                    break;
                 default:
                     echo "Don't know how to handle $operator\n";
                     break;
@@ -394,6 +421,8 @@ function constraintToRanges(string $constraints): array
             $range1   = constraintToRanges($match[1]);
             $range2   = constraintToRanges($match[2]);
             $ranges[] = intersectRanges($range1[0], $range2[0]);
+        } elseif (empty($constraint) || $constraint === '*') {
+            $ranges[] = ['lower' => '0.0.0', 'upper' => '999.999.999'];
         } else {
             echo "Don't know how to parse $constraint\n";
         }
@@ -438,7 +467,8 @@ function mergeRanges(array $range1, array $range2): ?array
     return null;
 }
 
-function compareDependencies($a, $b) {
+function compareDependencies($a, $b)
+{
     $priorities = [
         '~^php$~' => 0,
         '~^ext-~' => 1,
