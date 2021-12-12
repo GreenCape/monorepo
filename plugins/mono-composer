@@ -53,34 +53,44 @@ switch ($subCommand) {
         usage();
         exit(1);
     case 'merge':
-        echo "Creating global composer.json\n";
-        if (!file_exists('composer.json')) {
-            $globalJson = [
-                'require'      => [],
-                'require-dev'  => [],
-                'autoload'     => [],
-                'autoload-dev' => [],
-            ];
-        } else {
-            $globalJson = json_decode(file_get_contents('composer.json'), true, 512, JSON_THROW_ON_ERROR);
-        }
-
-        foreach (getSubtrees() as $subtree) {
-            $composerJson = $subtree['prefix'] . '/composer.json';
-            if (!file_exists($composerJson)) {
-                echo "No composer.json file in {$subtree['prefix']}\n";
-                continue;
-            }
-
-            $localJson  = json_decode(file_get_contents($composerJson), true, 512, JSON_THROW_ON_ERROR);
-            $globalJson = mergeSections($globalJson, $localJson, getSubtrees());
-        }
-        $jsonContent = str_replace('\\/', '/', json_encode($globalJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
-        file_put_contents('composer.json', $jsonContent);
+        cmdMerge();
         break;
 }
 
 echo "$command: Done.\n\n";
+exit(0);
+
+/**
+ * @return void
+ * @throws \JsonException
+ */
+function cmdMerge(): void
+{
+    echo "Creating global composer.json\n";
+    if (!file_exists('composer.json')) {
+        $globalJson = [
+            'require'      => [],
+            'require-dev'  => [],
+            'autoload'     => [],
+            'autoload-dev' => [],
+        ];
+    } else {
+        $globalJson = json_decode(file_get_contents('composer.json'), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    foreach (getSubtrees() as $subtree) {
+        $composerJson = $subtree['prefix'] . '/composer.json';
+        if (!file_exists($composerJson)) {
+            // No composer.json file, so nothing to do
+            continue;
+        }
+
+        $localJson  = json_decode(file_get_contents($composerJson), true, 512, JSON_THROW_ON_ERROR);
+        $globalJson = mergeSections($globalJson, $localJson, getSubtrees());
+    }
+    $jsonContent = str_replace('\\/', '/', json_encode($globalJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+    file_put_contents('composer.json', $jsonContent);
+}
 
 function getSubtrees()
 {
@@ -111,7 +121,7 @@ function mergeSections(array $global, array $local, array $subtrees): array
 {
     foreach (['require', 'require-dev'] as $section) {
         if (!isset($local[$section])) {
-            // Nothing to do, if section is not declared
+            // Nothing to do, section is not declared
             continue;
         }
 
@@ -121,7 +131,12 @@ function mergeSections(array $global, array $local, array $subtrees): array
                 continue;
             }
 
-            if (!isset($global[$section][$dependency])) {
+            if ($section === 'require-dev' && isset($global['require'][$dependency])) {
+                $global['require'][$dependency] = intersectConstraint(
+                    $global['require'][$dependency],
+                    $versionConstraint
+                );
+            } elseif (!isset($global[$section][$dependency])) {
                 // Not in global json yet, so take this
                 $global[$section][$dependency] = $versionConstraint;
             } else {
@@ -234,19 +249,22 @@ function mergeConflicts(array $global, array $local, array $subtrees): array
 
 function mergeConstraints(string $constraint1, string $constraint2): string
 {
-    echo "Merging $constraint1 and $constraint2\n";
     $ranges1 = constraintToRanges($constraint1);
     $ranges2 = constraintToRanges($constraint2);
     $ranges  = mergeAllRanges([...$ranges1, ...$ranges2]);
 
     $constraint = rangesToConstraint($ranges);
-    echo "Merging $constraint1 and $constraint2 => $constraint\n";
 
     return $constraint;
 }
 
 function intersectConstraint(string $constraint1, string $constraint2): string
 {
+    if (empty($constraint1) || empty($constraint2)) {
+        // One of the ranges is empty, so intersection is empty
+        return '';
+    }
+
     $ranges1 = constraintToRanges($constraint1);
     $ranges2 = constraintToRanges($constraint2);
     $ranges  = [];
@@ -261,7 +279,9 @@ function intersectConstraint(string $constraint1, string $constraint2): string
 
     $ranges = mergeAllRanges($ranges);
 
-    return rangesToConstraint($ranges);
+    $constraint = rangesToConstraint($ranges);
+
+    return $constraint;
 }
 
 function rangesToConstraint(array $ranges)
@@ -279,28 +299,36 @@ function rangesToConstraint(array $ranges)
             [$lowerPatch, $stability] = explode('-', $lowerPatch);
         }
 
-        if ((int)$upperMajor === (int)$lowerMajor + 1 && (int)$upperMinor === 0 && (int)$upperPatch === 0) {
+        if ((int)$upperMajor === (int)$lowerMajor + 1 && $upperMinor === '0' && $upperPatch === '0') {
             $constraint = "^$lowerMajor.$lowerMinor";
-            if ((int)$lowerPatch !== 0) {
+            if ($lowerPatch !== '0') {
                 $constraint .= ".$lowerPatch";
             }
             if ($stability !== null) {
                 $constraint .= "@$stability";
             }
             $constraints[] = $constraint;
-        } elseif ((int)$upperMajor === (int)$lowerMajor) {
-            $constraint = "~$lowerMajor.$lowerMinor";
-            if ((int)$upperMinor === (int)$lowerMinor) {
+        } elseif ($upperMajor === $lowerMajor) {
+            $constraint = ">=$lowerMajor.$lowerMinor";
+            if ($upperMinor === $lowerMinor) {
                 $constraint .= ".$lowerPatch";
             }
             if ($stability !== null) {
                 $constraint .= "@$stability";
             }
-            $constraints[] = $constraint;
-        } elseif ((int)$lowerMajor === 0 && (int)$lowerMinor === 0 && (int)$lowerPatch === 0) {
-            $constraint = "<$upperMajor.$upperMinor";
-            if ((int)$upperPatch !== 0) {
+            $constraint .= ",<$upperMajor.$upperMinor";
+            if ($upperPatch !== '0') {
                 $constraint .= ".$upperPatch";
+            }
+            $constraints[] = $constraint;
+        } elseif ($lowerMajor === '0' && $lowerMinor === '0' && $lowerPatch === '0') {
+            if ($upperMajor === '999' && $upperMinor === '999' && $upperPatch === '999') {
+                $constraint = "*";
+            } else {
+                $constraint = "<$upperMajor.$upperMinor";
+                if ($upperPatch !== '0') {
+                    $constraint .= ".$upperPatch";
+                }
             }
             $constraints[] = $constraint;
         } else {
@@ -361,7 +389,7 @@ function isInRange($version, $range)
 function constraintToRanges(string $constraints): array
 {
     $ranges = [];
-    foreach (explode('|', $constraints) as $constraint) {
+    foreach (preg_split('~\s*\|\|?\s*~', $constraints) as $constraint) {
         if (preg_match(
             '~^(\D+)?(\d+)(?:\.(x|\d+))?(?:\.(x|\d+))?(?:[@-](.+))?$~',
             $constraint,
@@ -426,6 +454,7 @@ function constraintToRanges(string $constraints): array
             $ranges[] = ['lower' => '0.0.0', 'upper' => '999.999.999'];
         } else {
             echo "Don't know how to parse $constraint\n";
+            $ranges[] = ['exact' => $constraint];
         }
     }
 
@@ -441,13 +470,16 @@ function constraintToRanges(string $constraints): array
 function intersectRanges(array $range1, array $range2): ?array
 {
     $lowerBound = version_compare($range1['lower'], $range2['lower'], 'lt') ? $range2['lower'] : $range1['lower'];
+    if (preg_match('~(-.*)$~',$lowerBound, $match)) {
+        $lowerBound = str_replace($match[1], '', $lowerBound);
+    }
     $upperBound = version_compare($range1['upper'], $range2['upper'], 'lt') ? $range1['upper'] : $range2['upper'];
 
     if (version_compare($lowerBound, $upperBound, 'ge')) {
         return null;
     }
 
-    return ['lower' => $lowerBound, 'upper' => $upperBound];
+    return ['lower' => $lowerBound . ($match[1] ?? ''), 'upper' => $upperBound];
 }
 
 /**
@@ -493,4 +525,21 @@ function compareDependencies($a, $b)
     }
 
     return $prioA <=> $prioB;
+}
+
+function dumpRange($range)
+{
+    return "[{$range['lower']}-{$range['upper']}]";
+}
+
+function dumpRanges($ranges)
+{
+    return implode(', ', array_reduce(
+        $ranges,
+        function ($result, $range) {
+            $result[] = dumpRange($range);
+            return $result;
+        },
+        []
+    ));
 }
