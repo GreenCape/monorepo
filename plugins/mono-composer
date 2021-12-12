@@ -58,7 +58,6 @@ switch ($subCommand) {
             $globalJson = [
                 'require'      => [],
                 'require-dev'  => [],
-                'conflict'     => [],
                 'autoload'     => [],
                 'autoload-dev' => [],
             ];
@@ -206,9 +205,27 @@ function mergeConflicts(array $global, array $local, array $subtrees): array
 {
     foreach ($local['conflict'] as $dependency => $constraint) {
         echo "Conflicting $dependency => $constraint\n";
+        if (!isset($global['conflict'][$dependency])) {
+            $global['conflict'][$dependency] = $constraint;
+            continue;
+        }
+        $global['conflict'][$dependency] = mergeConstraints($global['conflict'][$dependency], $constraint);
     }
 
     return $global;
+}
+
+function mergeConstraints(string $constraint1, string $constraint2): string
+{
+    echo "Merging $constraint1 and $constraint2\n";
+    $ranges1 = constraintToRanges($constraint1);
+    $ranges2 = constraintToRanges($constraint2);
+    $ranges = mergeAllRanges([...$ranges1, ...$ranges2]);
+
+    $constraint = rangesToConstraint($ranges);
+    echo "Merging $constraint1 and $constraint2 => $constraint\n";
+
+    return $constraint;
 }
 
 function intersectConstraint(string $constraint1, string $constraint2): string
