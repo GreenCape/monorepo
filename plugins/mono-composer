@@ -173,6 +173,15 @@ function mergeSections(array $global, array $local, array $subtrees): array
         }
     }
 
+    uksort(
+        $global['require'],
+        'compareDependencies'
+    );
+    uksort(
+        $global['require-dev'],
+        'compareDependencies'
+    );
+
     return $global;
 }
 
@@ -195,6 +204,10 @@ function mergeSuggestions(array $global, array $local, array $subtrees): array
 
 function mergeConflicts(array $global, array $local, array $subtrees): array
 {
+    foreach ($local['conflict'] as $dependency => $constraint) {
+        echo "Conflicting $dependency => $constraint\n";
+    }
+
     return $global;
 }
 
@@ -214,12 +227,7 @@ function intersectConstraint(string $constraint1, string $constraint2): string
 
     $ranges = mergeAllRanges($ranges);
 
-    // Convert ranges to constraint
-    $constraint = rangesToConstraint($ranges);
-
-    echo "$constraint1 ∩ $constraint2 = $constraint\n";
-
-    return $constraint2;
+    return rangesToConstraint($ranges);
 }
 
 function rangesToConstraint(array $ranges)
@@ -411,4 +419,30 @@ function mergeRanges(array $range1, array $range2): ?array
     }
 
     return null;
+}
+
+function compareDependencies($a, $b) {
+    $priorities = [
+        '~^php$~' => 0,
+        '~^ext-~' => 1,
+        '~^psr/~' => 2,
+        '~.*~'    => 3,
+    ];
+    foreach ($priorities as $pattern => $priority) {
+        if (preg_match($pattern, $a)) {
+            $prioA = $priority;
+            break;
+        }
+    }
+    foreach ($priorities as $pattern => $priority) {
+        if (preg_match($pattern, $b)) {
+            $prioB = $priority;
+            break;
+        }
+    }
+    if ($prioA === $prioB) {
+        return $a <=> $b;
+    }
+
+    return $prioA <=> $prioB;
 }
