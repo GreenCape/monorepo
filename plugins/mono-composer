@@ -69,6 +69,10 @@ function cmdMerge(): void
     echo "Creating global composer.json\n";
     if (!file_exists('composer.json')) {
         $globalJson = [
+            '_readme'      => [
+                'This file defines the combined dependencies of your project and subprojects',
+                "This file wass @generated using 'mono composer merge'",
+            ],
             'require'      => [],
             'require-dev'  => [],
             'autoload'     => [],
@@ -221,8 +225,8 @@ function mergeSuggestions(array $global, array $local, array $subtrees): array
         }
 
         if (!isset($global['require-dev'][$dependency]) && !isset($global['require'][$dependency])) {
-            // Not yet required, add to require-dev for use in tests
-            $global['require-dev'][$dependency] = '*';
+            // Not yet required, add to suggest
+            $global['suggest'][$dependency] = ($global['suggest'][$dependency] ?? '') . ' - ' . $description;
         }
     }
 
@@ -470,7 +474,7 @@ function constraintToRanges(string $constraints): array
 function intersectRanges(array $range1, array $range2): ?array
 {
     $lowerBound = version_compare($range1['lower'], $range2['lower'], 'lt') ? $range2['lower'] : $range1['lower'];
-    if (preg_match('~(-.*)$~',$lowerBound, $match)) {
+    if (preg_match('~(-.*)$~', $lowerBound, $match)) {
         $lowerBound = str_replace($match[1], '', $lowerBound);
     }
     $upperBound = version_compare($range1['upper'], $range2['upper'], 'lt') ? $range1['upper'] : $range2['upper'];
@@ -534,12 +538,12 @@ function dumpRange($range)
 
 function dumpRanges($ranges)
 {
-    return implode(', ', array_reduce(
-        $ranges,
-        function ($result, $range) {
+    return implode(
+        ', ',
+        array_reduce($ranges, function ($result, $range) {
             $result[] = dumpRange($range);
+
             return $result;
-        },
-        []
-    ));
+        },           [])
+    );
 }
