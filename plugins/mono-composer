@@ -75,7 +75,8 @@ switch ($subCommand) {
             $localJson  = json_decode(file_get_contents($composerJson), true, 512, JSON_THROW_ON_ERROR);
             $globalJson = mergeSections($globalJson, $localJson, getSubtrees());
         }
-        echo str_replace('\\/', '/', json_encode($globalJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)) . "\n";
+        $jsonContent = str_replace('\\/', '/', json_encode($globalJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+        file_put_contents('composer.json', $jsonContent);
         break;
 }
 
