@@ -115,7 +115,7 @@ EOT
             $newTestSuite->setAttribute('name', $name);
             foreach ($testSuite->childNodes as $tests) {
                 /** @var DOMElement $tests */
-                if ($tests instanceof DOMText) {
+                if (!($tests instanceof DOMElement)) {
                     continue;
                 }
                 $type            = $tests->nodeName;
@@ -131,7 +131,7 @@ EOT
             $phpSettings = $phpSection->item(0)->childNodes;
             foreach ($phpSettings as $setting) {
                 /** @var DOMElement $setting */
-                if ($setting instanceof DOMText) {
+                if (!($setting instanceof DOMElement)) {
                     continue;
                 }
                 $type = $setting->nodeName;
@@ -202,7 +202,7 @@ function insertOrReplaceNode(DOMDocument $globalXml, string $name, DOMElement $n
     $replaced = false;
     foreach ($testSuites->childNodes as $testSuite) {
         /** @var DOMElement $testSuite */
-        if ($testSuite instanceof DOMText) {
+        if (!($testSuite instanceof DOMElement)) {
             continue;
         }
         if ($testSuite->getAttribute('name') === $name) {
