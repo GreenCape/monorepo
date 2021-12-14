@@ -1,0 +1,233 @@
+#!/usr/bin/env php
+
+<?php
+function usage()
+{
+    echo <<<EOT
+Usage: mono phpunit <command>
+   or: mono phpunit -h|--help
+
+Arguments:
+
+    <command>  The subcommand to be executed.
+
+Options:
+
+  -h|--help              Show this help text.
+
+EOT;
+}
+
+$args       = $_SERVER['argv'];
+$command    = preg_replace('~^.*?/mono-~', '', array_shift($args));
+$positional = [];
+while (count($args) > 0) {
+    $arg = array_shift($args);
+    if (preg_match('~^(--?[^ =]+)(?:=(\S*))?$~', $arg, $match)) {
+        switch ($match[1]) {
+            case '-n':
+            case '--name':
+                $name = $match[2] ?? array_shift($args);
+                break;
+            case '-h':
+            case '--help':
+                usage();
+                exit(0);
+            default:
+                echo "Unknown option »{$match[1]}«\n";
+                usage();
+                exit(1);
+        }
+    } else {
+        $positional[] = $arg;
+    }
+}
+
+$name = $name ?? 'combined';
+
+# Get positional arguments
+$subCommand = $positional[0] ?? 'help';
+
+switch ($subCommand) {
+    case 'help':
+        usage();
+        exit(1);
+    case 'merge':
+        cmdMerge();
+        break;
+}
+
+echo "$command: Done.\n\n";
+exit(0);
+
+/**
+ * @return void
+ */
+function cmdMerge(): void
+{
+    $globalXml                     = new DOMDocument;
+    $globalXml->preserveWhiteSpace = false;
+    $globalXml->formatOutput       = true;
+
+    if (!file_exists('phpunit.xml')) {
+        echo "Creating global phpunit.xml\n";
+        $globalXml->loadXML(
+            <<<EOT
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="bootstrap.php" colors="false">
+    <!--
+    This file defines the combined test resources of your project and subprojects
+    This file was @generated using 'mono phpunit merge
+    -->
+    <testsuites>
+    </testsuites>
+</phpunit>
+EOT
+        );
+    } else {
+        echo "Updating global phpunit.xml\n";
+        $globalXml->load('phpunit.xml');
+    }
+
+    $bootstrap = [];
+
+    foreach (getSubtrees() as $subtree) {
+        $phpunitXml = $subtree['prefix'] . '/phpunit.xml.dist';
+        if (!file_exists($phpunitXml)) {
+            $phpunitXml = $subtree['prefix'] . '/phpunit.xml';
+            if (!file_exists($phpunitXml)) {
+                continue;
+            }
+        }
+
+        $suiteName = basename($subtree['prefix']);
+
+        $localXml = new DOMDocument;
+        $localXml->load($phpunitXml);
+
+        $testSuites = $localXml->getElementsByTagName('testsuite');
+        foreach ($testSuites as $testSuite) {
+            $name = $suiteName;
+            if ($testSuites->length > 1) {
+                $name .= '-' . $testSuite->attributes['name'];
+            }
+            $newTestSuite = $globalXml->createElement('testsuite');
+            $newTestSuite->setAttribute('name', $name);
+            foreach ($testSuite->childNodes as $tests) {
+                /** @var DOMElement $tests */
+                if ($tests instanceof DOMText) {
+                    continue;
+                }
+                $type            = $tests->nodeName;
+                $path            = $tests->textContent;
+                $newTestLocation = $globalXml->createElement($type, $subtree['prefix'] . '/' . $path);
+                $newTestSuite->appendChild($newTestLocation);
+            }
+            insertOrReplaceNode($globalXml, $name, $newTestSuite);
+        }
+
+        $phpSection = $localXml->getElementsByTagName('php');
+        if ($phpSection->length > 0) {
+            $phpSettings = $phpSection->item(0)->childNodes;
+            foreach ($phpSettings as $setting) {
+                /** @var DOMElement $setting */
+                if ($setting instanceof DOMText) {
+                    continue;
+                }
+                $type = $setting->nodeName;
+
+                $name                      = $setting->getAttribute('name');
+                $value                     = $setting->getAttribute('value');
+                $bootstrap[$type][$name][] = $value;
+            }
+        }
+    }
+
+    $templates = [
+        'ini'     => "ini_set('%1\$s', %2\$s);%3\$s\n",
+        'const'   => "define('%1\$s', %2\$s);%3\$s\n",
+        'var'     => "\$GLOBALS['%1\$s'] = %2\$s;%3\$s\n",
+        'env'     => "\$_ENV['%1\$s'] = %2\$s;%3\$s\n",
+        'post'    => "\$_POST['%1\$s'] = %2\$s;%3\$s\n",
+        'get'     => "\$_GET['%1\$s'] = %2\$s;%3\$s\n",
+        'cookie'  => "\$_COOKIE['%1\$s'] = %2\$s;%3\$s\n",
+        'server'  => "\$_SERVER['%1\$s'] = %2\$s;%3\$s\n",
+        'files'   => "\$_FILES['%1\$s'] = %2\$s;%3\$s\n",
+        'request' => "\$_REQUEST['%1\$s'] = %2\$s;%3\$s\n",
+    ];
+
+    /** @todo Update bootstrap.php if it already exists */
+    $bootstrapContent = <<<EOT
+<?php
+/**
+ * This file defines the PHP settings for testing your project and subprojects
+ * This file was @generated using 'mono phpunit merge
+ */
+require_once __DIR__ . '/vendor/autoload.php';
+EOT;
+
+    foreach ($bootstrap as $type => $settings) {
+        if (!isset($templates[$type])) {
+            echo "Encountered unknown php setting '$type'\n";
+        }
+        $bootstrapContent .= "\n";
+        foreach ($settings as $name => $values) {
+            $unique = array_unique($values);
+            if (count($unique) > 1) {
+                $values = array_flip(array_count_values($values));
+                krsort($values);
+                $value   = array_shift($values);
+                $comment = " // Other encountered values were '" . implode("', '", $values) . "'";
+            } else {
+                $value   = $unique[0];
+                $comment = '';
+            }
+            if (!preg_match('~^__[A-Z]+__$~', $value)) {
+                $value = "'$value'";
+            }
+            $bootstrapContent .= sprintf($templates[$type], $name, $value, $comment);
+        }
+    }
+    // Write to disk
+    $globalXml->save('phpunit.xml');
+    file_put_contents('bootstrap.php', $bootstrapContent);
+}
+
+function insertOrReplaceNode(DOMDocument $globalXml, string $name, DOMElement $newTestSuite)
+{
+    $testSuites = $globalXml->getElementsByTagName('testsuites')->item(0);
+    if ($testSuites === null) {
+        return;
+    }
+    $replaced = false;
+    foreach ($testSuites->childNodes as $testSuite) {
+        /** @var DOMElement $testSuite */
+        if ($testSuite instanceof DOMText) {
+            continue;
+        }
+        if ($testSuite->getAttribute('name') === $name) {
+            // Replace
+            $testSuites->replaceChild($newTestSuite, $testSuite);
+            $replaced = true;
+            break;
+        }
+    }
+    if (!$replaced) {
+        // Insert
+        $testSuites->appendChild($newTestSuite);
+    }
+}
+
+function getSubtrees()
+{
+    return array_reduce(array_unique(file('.git/subtrees')), static function ($result, $line) {
+        [$remoteName, $prefix, $remoteUrl] = explode(' ', $line);
+        $result[basename($prefix)] = [
+            'name'   => $remoteName,
+            'prefix' => $prefix,
+            'url'    => $remoteUrl,
+        ];
+
+        return $result;
+    },                  []);
+}

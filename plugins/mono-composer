@@ -66,12 +66,12 @@ exit(0);
  */
 function cmdMerge(): void
 {
-    echo "Creating global composer.json\n";
     if (!file_exists('composer.json')) {
+        echo "Creating global composer.json\n";
         $globalJson = [
             '_readme'      => [
                 'This file defines the combined dependencies of your project and subprojects',
-                "This file wass @generated using 'mono composer merge'",
+                "This file was @generated using 'mono composer merge'",
             ],
             'require'      => [],
             'require-dev'  => [],
@@ -79,6 +79,7 @@ function cmdMerge(): void
             'autoload-dev' => [],
         ];
     } else {
+        echo "Updating global composer.json\n";
         $globalJson = json_decode(file_get_contents('composer.json'), true, 512, JSON_THROW_ON_ERROR);
     }
 
@@ -92,8 +93,46 @@ function cmdMerge(): void
         $localJson  = json_decode(file_get_contents($composerJson), true, 512, JSON_THROW_ON_ERROR);
         $globalJson = mergeSections($globalJson, $localJson, getSubtrees());
     }
+
+    // Cleanup
+    foreach ($globalJson['require'] as $dependency => $versionConstraint) {
+        if (isset($globalJson['require-dev'][$dependency])) {
+            $globalJson['require'][$dependency] = intersectConstraint(
+                $globalJson['require'][$dependency],
+                $globalJson['require-dev'][$dependency]
+            );
+            unset($globalJson['require-dev'][$dependency]);
+        }
+    }
+
+    foreach ($globalJson['suggest'] ?? [] as $dependency => $description) {
+        $globalJson['suggest'][$dependency] = implode(' - ', $description);
+    }
+
+    uksort(
+        $globalJson['require'],
+        'compareDependencies'
+    );
+    uksort(
+        $globalJson['require-dev'],
+        'compareDependencies'
+    );
+    if (isset($globalJson['suggest'])) {
+        uksort(
+            $globalJson['suggest'],
+            'compareDependencies'
+        );
+    }
+    if (isset($globalJson['conflict'])) {
+        uksort(
+            $globalJson['conflict'],
+            'compareDependencies'
+        );
+    }
+
+    // Write to disk
     $jsonContent = str_replace('\\/', '/', json_encode($globalJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
-    file_put_contents('composer.json', $jsonContent);
+    file_put_contents('composer.json', $jsonContent . "\n");
 }
 
 function getSubtrees()
@@ -135,12 +174,7 @@ function mergeSections(array $global, array $local, array $subtrees): array
                 continue;
             }
 
-            if ($section === 'require-dev' && isset($global['require'][$dependency])) {
-                $global['require'][$dependency] = intersectConstraint(
-                    $global['require'][$dependency],
-                    $versionConstraint
-                );
-            } elseif (!isset($global[$section][$dependency])) {
+            if (!isset($global[$section][$dependency])) {
                 // Not in global json yet, so take this
                 $global[$section][$dependency] = $versionConstraint;
             } else {
@@ -169,13 +203,6 @@ function mergeSections(array $global, array $local, array $subtrees): array
         foreach ($local[$autoload] as $method => $assignment) {
             switch ($method) {
                 case 'psr-0':
-                    foreach ($assignment as $namespace => $path) {
-                        $global[$autoload][$method][$namespace] = rtrim(
-                            $subtrees[$local['name']]['prefix'] . '/' . $path,
-                            '/'
-                        );
-                    }
-                    break;
                 case 'psr-4':
                     foreach ($assignment as $namespace => $path) {
                         $global[$autoload][$method][$namespace] = $subtrees[$local['name']]['prefix'] . '/' . $path;
@@ -192,27 +219,6 @@ function mergeSections(array $global, array $local, array $subtrees): array
         }
     }
 
-    uksort(
-        $global['require'],
-        'compareDependencies'
-    );
-    uksort(
-        $global['require-dev'],
-        'compareDependencies'
-    );
-    if (isset($global['suggest'])) {
-        uksort(
-            $global['suggest'],
-            'compareDependencies'
-        );
-    }
-    if (isset($global['conflict'])) {
-        uksort(
-            $global['conflict'],
-            'compareDependencies'
-        );
-    }
-
     return $global;
 }
 
@@ -226,7 +232,7 @@ function mergeSuggestions(array $global, array $local, array $subtrees): array
 
         if (!isset($global['require-dev'][$dependency]) && !isset($global['require'][$dependency])) {
             // Not yet required, add to suggest
-            $global['suggest'][$dependency] = ($global['suggest'][$dependency] ?? '') . ' - ' . $description;
+            $global['suggest'][$dependency][] = $description;
         }
     }
 
