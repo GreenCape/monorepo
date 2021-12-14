@@ -29,6 +29,13 @@ while (count($args) > 0) {
             case '--name':
                 $name = $match[2] ?? array_shift($args);
                 break;
+            case '--dev':
+                $requireSection = 'require-dev';
+                break;
+            case '-x':
+            case '--expand':
+                $expand = true;
+                break;
             case '-h':
             case '--help':
                 usage();
@@ -43,10 +50,12 @@ while (count($args) > 0) {
     }
 }
 
-$name = $name ?? 'combined';
+$name           = $name ?? 'combined';
+$requireSection = $requireSection ?? 'require';
+$expand         = $expand ?? false;
 
 # Get positional arguments
-$subCommand = $positional[0] ?? 'help';
+$subCommand = array_shift($positional) ?? 'help';
 
 switch ($subCommand) {
     case 'help':
@@ -55,10 +64,57 @@ switch ($subCommand) {
     case 'merge':
         cmdMerge();
         break;
+    case 'require':
+        cmdRequire($positional, $requireSection, $expand);
+        break;
 }
 
 echo "$command: Done.\n\n";
 exit(0);
+
+function cmdRequire(array $arguments, string $section, bool $expand)
+{
+    // Optional package name can also include a version constraint, e.g. foo/bar or foo/bar:1.0.0 or foo/bar=1.0.0 or "foo/bar 1.0.0"
+    if (preg_match('~^(.*?)[:=](.*)$~', $arguments[0], $match)) {
+        $package           = $match[1];
+        $versionConstraint = $match[2];
+    } else {
+        $package           = array_shift($arguments);
+        $versionConstraint = array_shift($arguments) ?? '*';
+    }
+
+    echo "Requiring $package:$versionConstraint\n";
+
+    foreach (getSubtrees() as $subtree) {
+        $composerJson = $subtree['prefix'] . '/composer.json';
+        if (!file_exists($composerJson)) {
+            // No composer.json file, so nothing to do
+            continue;
+        }
+
+        $localJson = json_decode(file_get_contents($composerJson), true, 512, JSON_THROW_ON_ERROR);
+
+        if (isset($localJson[$section][$package])) {
+            $old = $localJson[$section][$package];
+            if ($expand) {
+                $new = mergeConstraints($localJson[$section][$package], $versionConstraint);
+                // echo "Updated {$localJson['name']}[$section] from $package:$old to $package:$new\n";
+                $localJson[$section][$package] = $new;
+            } else {
+                // echo "Replaced $package:$old with $package:$versionConstraint in {$localJson['name']}[$section]\n";
+                $localJson[$section][$package] = $versionConstraint;
+            }
+        } else {
+            // echo "Added $package:$versionConstraint to {$localJson['name']}[$section]\n";
+            $localJson[$section][$package] = $versionConstraint;
+        }
+
+
+        // Write to disk
+        $jsonContent = str_replace('\\/', '/', json_encode($localJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+        file_put_contents($composerJson, $jsonContent . "\n");
+    }
+}
 
 /**
  * @return void
@@ -263,9 +319,7 @@ function mergeConstraints(string $constraint1, string $constraint2): string
     $ranges2 = constraintToRanges($constraint2);
     $ranges  = mergeAllRanges([...$ranges1, ...$ranges2]);
 
-    $constraint = rangesToConstraint($ranges);
-
-    return $constraint;
+    return rangesToConstraint($ranges);
 }
 
 function intersectConstraint(string $constraint1, string $constraint2): string
@@ -289,9 +343,7 @@ function intersectConstraint(string $constraint1, string $constraint2): string
 
     $ranges = mergeAllRanges($ranges);
 
-    $constraint = rangesToConstraint($ranges);
-
-    return $constraint;
+    return rangesToConstraint($ranges);
 }
 
 function rangesToConstraint(array $ranges)
@@ -309,7 +361,19 @@ function rangesToConstraint(array $ranges)
             [$lowerPatch, $stability] = explode('-', $lowerPatch);
         }
 
-        if ((int)$upperMajor === (int)$lowerMajor + 1 && $upperMinor === '0' && $upperPatch === '0') {
+        if ((int)$upperMajor - (int)$lowerMajor > 1) {
+            $major         = (int)$lowerMajor;
+            $constraints[] = rangesToConstraint([
+                                                    [
+                                                        'lower' => $range['lower'],
+                                                        'upper' => ($major + 1) . '.0.0',
+                                                    ],
+                                                    [
+                                                        'lower' => ($major + 1) . '.0.0',
+                                                        'upper' => $range['upper'],
+                                                    ],
+                                                ]);
+        } elseif ((int)$upperMajor - (int)$lowerMajor === 1 && $upperMinor === '0' && $upperPatch === '0') {
             $constraint = "^$lowerMajor.$lowerMinor";
             if ($lowerPatch !== '0') {
                 $constraint .= ".$lowerPatch";
