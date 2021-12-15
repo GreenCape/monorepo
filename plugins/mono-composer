@@ -97,7 +97,7 @@ function cmdRequire(array $arguments, string $section, bool $expand)
         if (isset($localJson[$section][$package])) {
             $old = $localJson[$section][$package];
             if ($expand) {
-                $new = mergeConstraints($localJson[$section][$package], $versionConstraint);
+                $new = mergeConstraints($old, $versionConstraint);
                 // echo "Updated {$localJson['name']}[$section] from $package:$old to $package:$new\n";
                 $localJson[$section][$package] = $new;
             } else {
@@ -161,10 +161,6 @@ function cmdMerge(): void
         }
     }
 
-    foreach ($globalJson['suggest'] ?? [] as $dependency => $description) {
-        $globalJson['suggest'][$dependency] = implode(' - ', $description);
-    }
-
     uksort(
         $globalJson['require'],
         'compareDependencies'
@@ -173,12 +169,6 @@ function cmdMerge(): void
         $globalJson['require-dev'],
         'compareDependencies'
     );
-    if (isset($globalJson['suggest'])) {
-        uksort(
-            $globalJson['suggest'],
-            'compareDependencies'
-        );
-    }
     if (isset($globalJson['conflict'])) {
         uksort(
             $globalJson['conflict'],
@@ -288,8 +278,17 @@ function mergeSuggestions(array $global, array $local, array $subtrees): array
 
         if (!isset($global['require-dev'][$dependency]) && !isset($global['require'][$dependency])) {
             // Not yet required, add to suggest
+            if (!isset($global['suggest'][$dependency])) {
+                $global['suggest'][$dependency] = [];
+            } elseif (is_string($global['suggest'][$dependency])) {
+                $global['suggest'][$dependency] = explode(' - ', $global['suggest'][$dependency]);
+            }
             $global['suggest'][$dependency][] = $description;
         }
+    }
+
+    foreach ($global['suggest'] ?? [] as $dependency => $description) {
+        $global['suggest'][$dependency] = implode(' - ', array_unique((array)$description));
     }
 
     return $global;
@@ -349,11 +348,15 @@ function intersectConstraint(string $constraint1, string $constraint2): string
 function rangesToConstraint(array $ranges)
 {
     usort($ranges, function ($a, $b) {
-        return version_compare($a['lower'], $b['lower']);
+        return version_compare($a['lower'] ?? $a['exact'] ?? '0.0', $b['lower'] ?? $b['exact'] ?? '0.0');
     });
 
     $constraints = [];
     foreach ($ranges as $range) {
+        if (isset($range['exact'])) {
+            return $range['exact'];
+        }
+
         [$lowerMajor, $lowerMinor, $lowerPatch] = explode('.', $range['lower']);
         [$upperMajor, $upperMinor, $upperPatch] = explode('.', $range['upper']);
         $stability = null;
@@ -361,7 +364,9 @@ function rangesToConstraint(array $ranges)
             [$lowerPatch, $stability] = explode('-', $lowerPatch);
         }
 
-        if ((int)$upperMajor - (int)$lowerMajor > 1) {
+        if ($range['lower'] === '0.0.0' && $range['upper'] === '999.999.999') {
+            $constraints[] = '*';
+        } elseif ((int)$upperMajor - (int)$lowerMajor > 1 || ((int)$upperMajor - (int)$lowerMajor === 1 && $upperMinor !== '0')) {
             $major         = (int)$lowerMajor;
             $constraints[] = rangesToConstraint([
                                                     [
@@ -543,6 +548,14 @@ function constraintToRanges(string $constraints): array
  */
 function intersectRanges(array $range1, array $range2): ?array
 {
+    /** @todo Check containment; for now, this works */
+    if (isset($range1['exact'])) {
+        return $range1;
+    }
+    if (isset($range2['exact'])) {
+        return $range2;
+    }
+
     $lowerBound = version_compare($range1['lower'], $range2['lower'], 'lt') ? $range2['lower'] : $range1['lower'];
     if (preg_match('~(-.*)$~', $lowerBound, $match)) {
         $lowerBound = str_replace($match[1], '', $lowerBound);
