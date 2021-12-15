@@ -1,0 +1,75 @@
+# To be included into mono (sub)commands
+
+get_remote_branches () {
+  local REMOTE_NAME="$1"
+  local REMOTE_DIR=.git/refs/remotes/"$REMOTE_NAME"
+  REMOTE_BRANCHES=""
+  if [ -d "$REMOTE_DIR" ]; then
+    ls $REMOTE_DIR
+  fi
+}
+
+get_main_branch () {
+  local REMOTE_NAME="$1"
+  git remote show $REMOTE_NAME | grep 'HEAD branch' | cut -d' ' -f5
+}
+
+find_matching_branch () {
+  local REMOTE_NAME="$1"
+  local LOCAL_BRANCH="$2"
+
+  REMOTE_BRANCHES=$(get_remote_branches "$REMOTE_NAME")
+
+  if [ ${#REMOTE_BRANCHES} -ne 0 ]; then
+    for b in $REMOTE_BRANCHES; do
+      if [[ "$b" == "$LOCAL_BRANCH" ]]; then
+        BRANCH="$b"
+        break
+      fi
+    done
+  fi
+  echo "${BRANCH:-HEAD}"
+}
+
+get_local_branches () {
+  ls .git/refs/heads
+}
+
+get_subtrees () {
+  git log | grep git-subtree-dir | tr -d ' ' | cut -d ":" -f2 | sort | uniq | xargs -I {} bash -c 'if [ -d $(git rev-parse --show-toplevel)/{} ]; then echo {}; fi'
+}
+
+get_prefix () {
+  REMOTE_NAME="$1"
+  found=0
+  grep -w "$REMOTE_NAME" < .git/subtrees |
+  {
+    while read remote_name prefix remote_url; do
+      echo "$prefix"
+      found=1
+      break;
+    done
+    if [[ $found -eq 0 ]]; then
+      echo "Unknown remote $REMOTE_NAME" >&2
+      exit 1
+    fi
+  }
+}
+
+require_work_tree () {
+	test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true || {
+		echo "This operation can not be used without a working tree."
+		exit 1
+	}
+}
+
+ensure_clean () {
+	if ! git diff-index HEAD --exit-code --quiet 2>&1; then
+		echo "Working tree has modifications.  Cannot add."
+		exit 1
+	fi
+	if ! git diff-index --cached HEAD --exit-code --quiet 2>&1; then
+		echo "Index has modifications.  Cannot add."
+		exit 1
+	fi
+}

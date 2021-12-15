@@ -52,6 +52,8 @@ done
 REMOTE_NAME=${POSITIONAL[0]}
 BRANCH=${POSITIONAL[1]}
 
+source "$MONO_PLUGIN_DIR"/mono_commons
+
 require_work_tree
 ensure_clean
 
@@ -60,13 +62,13 @@ if [[ ${#REMOTE_NAME} -eq 0 ]]; then
   exit 1
 fi
 
-DIRECTORY=$(get_prefix "$REMOTE_NAME")
+DIRECTORY=$(get_prefix "$REMOTE_NAME") || exit 1
 echo "$MONO_COMMAND: Prefix: $DIRECTORY"
-BRANCH=${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}
+BRANCH=${BRANCH:-$(git rev-parse --abbrev-ref HEAD)} || exit 1
 echo "$MONO_COMMAND: Branch: $BRANCH"
 
 echo "$MONO_COMMAND: Pulling subtree from branch $BRANCH"
-git subtree pull --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH" $OPT_SQUASH
+git subtree pull --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH" $OPT_SQUASH || exit 1
 
 echo "$MONO_COMMAND: Done."
 echo ""
