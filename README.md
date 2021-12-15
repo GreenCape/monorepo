@@ -111,3 +111,10 @@ $ mono push <name> [<ref>]
 ```
 
 -------------
+
+Also see
+* https://www.sourcefield.nl/post/git-subtree-survival-tips/
+* https://github.com/GwendolenLynch/git-subtree-sync
+* https://reactjsexample.com/fully-automated-version-management-and-package-publishing/
+* https://www.freecodecamp.org/news/how-to-use-the-dot-github-repository/
+
