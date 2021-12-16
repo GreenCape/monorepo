@@ -1,5 +1,22 @@
 # To be included into mono (sub)commands
 
+debug=
+quiet=
+
+debug () {
+	if test -n "$debug"
+	then
+		printf "%s\n" "$*" >&2
+	fi
+}
+
+say () {
+	if test -z "$quiet"
+	then
+		printf "%s\n" "$*" >&2
+	fi
+}
+
 get_remote_branches () {
   local REMOTE_NAME="$1"
   local REMOTE_DIR=.git/refs/remotes/"$REMOTE_NAME"
@@ -46,6 +63,23 @@ get_prefix () {
   {
     while read remote_name prefix remote_url; do
       echo "$prefix"
+      found=1
+      break;
+    done
+    if [[ $found -eq 0 ]]; then
+      echo "Unknown remote $REMOTE_NAME" >&2
+      exit 1
+    fi
+  }
+}
+
+get_repository_url () {
+  REMOTE_NAME="$1"
+  found=0
+  grep -w "$REMOTE_NAME" < .git/subtrees |
+  {
+    while read remote_name prefix remote_url; do
+      echo "$remote_url"
       found=1
       break;
     done
