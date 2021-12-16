@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat <<-EOT
+Usage: mono drone <command> <repository>
+   or: mono drone -h|--help
+
+Arguments:
+
+    <command>     The sub command
+    <repository>  The repository url or directory name of the subproject.
+
+Options:
+
+  -h|--help              Show this help text.
+
+EOT
+}
+
+drone_sign () {
+  REMOTE_NAME="$1"
+  source .drone-credentials
+  CURRENT_DIR=$(pwd)
+  DIRECTORY=$(get_prefix "$REMOTE_NAME")
+  REMOTE_URL=$(get_repository_url "$REMOTE_NAME")
+  REPOSITORY=$(basename $(dirname "${REMOTE_URL/%.git/}"))/$(basename "${REMOTE_URL/%.git/}")
+  debug "cd $DIRECTORY"
+  cd "$DIRECTORY" || exit
+  debug "drone jsonnet --stream"
+  drone jsonnet --stream
+  debug "drone sign $REPOSITORY --save"
+  drone sign "$REPOSITORY" --save
+  debug "cd $CURRENT_DIR"
+  cd "$CURRENT_DIR" || exit
+}
+
+OPT_ALL=
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  --all)
+    OPT_ALL=1
+    shift # past argument
+    ;;
+  --debug)
+    OPT_DEBUG=1
+    shift # past argument
+    ;;
+  -q)
+    OPT_QUIET=1
+    shift # past argument
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -*) # unknown option
+    say "Unknown option »$1«"
+    usage
+    exit 1
+    ;;
+  *)
+    POSITIONAL+=("$1") # save it in an array for later
+    shift              # past argument
+    ;;
+  esac
+done
+
+source "$MONO_PLUGIN_DIR"/mono_commons
+debug=$OPT_DEBUG
+quiet=$OPT_QUIET
+
+SUB_COMMAND=${POSITIONAL[0]}
+
+case "$SUB_COMMAND" in
+  sign)
+    if [[ $OPT_ALL -eq 0 ]]; then
+      REMOTE_NAME=${POSITIONAL[1]}
+      if [[ ${#REMOTE_NAME} -eq 0 ]]; then
+        say "$MONO_COMMAND: Remote name is required"
+        exit 1
+      fi
+      drone_sign "$REMOTE_NAME"
+    else
+      while read remote_name prefix remote_url; do
+        if [[ -f "$prefix"/.drone.jsonnet ]]; then
+          drone_sign "$remote_name"
+        fi
+      done < .git/subtrees
+    fi
+    ;;
+esac
+
+debug "$MONO_COMMAND: Done."
+debug ""
