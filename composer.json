@@ -1,0 +1,13 @@
+{
+    "name": "greencape/monorepo",
+    "description": "This tool is a partial replacement for git commands that utilizes `git-subtree` to manage monorepos.",
+    "type": "project",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Niels Braczek",
+            "email": "nbraczek@bsds.de"
+        }
+    ],
+    "require": {}
+}
