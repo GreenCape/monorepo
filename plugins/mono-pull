@@ -2,12 +2,14 @@
 
 usage() {
   cat <<-EOT
-Usage: mono pull [options] <repository> <ref>
+Usage: mono pull [options] <repository> [<ref>]
+   or: mono pull [options] --all [<ref>]
    or: mono pull -h|--help
 
 Pull recent changes fetches the given <ref> from the specified remote <repository> into the
-corresponding subtree. As with normal git pull, this doesn’t remove your own local changes;
-it just merges those changes into the latest <local-commit>.
+corresponding subtree. If <ref> is omitted, the corresponding value in subtree.conf is taken
+into account. As with normal git pull, this doesn’t remove your own local changes; it just
+merges those changes into the latest <local-commit>.
 With --squash, create only one commit that contains all the changes, rather than merging in
 the entire history.
 
@@ -18,8 +20,10 @@ Arguments:
 
 Options:
 
-  --squash               Merge subtree changes as a single commit.
-  -h|--help              Show this help text.
+  --all           Pull all subtrees.
+  --squash        Merge subtree changes as a single commit.
+  --debug         Provide debug information.
+  -h|--help       Show this help text.
 
 EOT
 }
@@ -28,6 +32,11 @@ pull_subtree () {
   REMOTE_NAME=$1
   BRANCH=$2
   OPT_SQUASH=$3
+  OPT_DEBUG=''
+  if [[ -n "$debug" ]]; then
+    OPT_DEBUG=" -d"
+  fi
+
   DIRECTORY=$(get_prefix "$REMOTE_NAME") || exit 1
   if [[ ! -d "$DIRECTORY" ]]; then
     debug "Subtree $DIRECTORY is not included in this branch"
@@ -38,7 +47,7 @@ pull_subtree () {
 
     debug "$MONO_COMMAND: Pulling subtree from branch $BRANCH"
     debug "git subtree pull --prefix=\"$DIRECTORY\" \"$REMOTE_NAME\" \"$BRANCH\" $OPT_SQUASH"
-    git subtree pull --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH" $OPT_SQUASH || exit 1
+    git subtree$OPT_DEBUG pull --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH" $OPT_SQUASH || exit 1
   fi
 }
 
@@ -88,17 +97,22 @@ ensure_clean
 
 if [[ $OPT_ALL -eq 0 ]]; then
   REMOTE_NAME=${POSITIONAL[0]}
-  BRANCH=${POSITIONAL[1]}
+  debug "$MONO_COMMAND: Pulling single subtree $REMOTE_NAME"
   if [[ ${#REMOTE_NAME} -eq 0 ]]; then
     say "$MONO_COMMAND: Remote name is required"
     exit 1
   fi
+  BRANCH=${POSITIONAL[1]:-$(get_remote_branch "$REMOTE_NAME")}
   pull_subtree "$REMOTE_NAME" "$BRANCH" $OPT_SQUASH
 else
-  BRANCH=${POSITIONAL[0]}
-  while read remote_name prefix remote_url; do
+  debug "$MONO_COMMAND: Pulling all subtrees"
+  debug "$MONO_COMMAND: Requested branch is '${POSITIONAL[0]}'"
+  while read prefix remote_name remote_url branch; do
+    debug "$MONO_COMMAND: Default branch is '$branch'"
+    BRANCH=${POSITIONAL[0]:-$branch}
+    debug "$MONO_COMMAND: Pulling branch '$BRANCH' for $remote_name"
     pull_subtree "$remote_name" "$BRANCH" $OPT_SQUASH
-  done < .git/subtrees
+  done < subtree.conf
 fi
 
 debug "$MONO_COMMAND: Done."

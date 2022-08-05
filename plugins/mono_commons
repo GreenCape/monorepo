@@ -73,6 +73,23 @@ get_prefix () {
   }
 }
 
+get_remote_branch () {
+  REMOTE_NAME="$1"
+  found=0
+  grep -w "$REMOTE_NAME" < subtree.conf |
+  {
+    while read prefix remote_name remote_url branch; do
+      echo "$branch"
+      found=1
+      break;
+    done
+    if [[ $found -eq 0 ]]; then
+      echo "Unknown remote $REMOTE_NAME" >&2
+      exit 1
+    fi
+  }
+}
+
 get_repository_url () {
   REMOTE_NAME="$1"
   found=0

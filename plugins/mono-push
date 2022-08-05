@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat <<-EOT
+Usage: mono push <repository> <ref>
+   or: mono push --all <ref>
+   or: mono push -h|--help
+
+Arguments:
+
+    <repository>  The repository url or directory name of the subproject.
+    <ref>         The remote reference. Defaults to current branch.
+
+Options:
+
+  --all           Pull all subtrees.
+  -h|--help       Show this help text.
+
+EOT
+}
+
+push_subtree () {
+  REMOTE_NAME=$1
+  BRANCH=$2
+  DIRECTORY=$(get_prefix "$REMOTE_NAME") || exit 1
+  if [[ ! -d "$DIRECTORY" ]]; then
+    debug "Subtree $DIRECTORY is not included in this branch"
+  else
+    debug "$MONO_COMMAND: Prefix: $DIRECTORY"
+    BRANCH=${BRANCH:-$(git rev-parse --abbrev-ref HEAD)} || exit 1
+    debug "$MONO_COMMAND: Branch: $BRANCH"
+
+    debug "$MONO_COMMAND: Pushing subtree to branch $BRANCH"
+    debug "git subtree push --prefix=\"$DIRECTORY\" \"$REMOTE_NAME\" \"$BRANCH\""
+    git subtree push --prefix="$DIRECTORY" "$REMOTE_NAME" "$BRANCH" || exit 1
+  fi
+}
+
+OPT_ALL=
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  --all)
+    OPT_ALL=1
+    shift # past argument
+    ;;
+  --debug)
+    OPT_DEBUG=1
+    shift # past argument
+    ;;
+  -q)
+    OPT_QUIET=1
+    shift # past argument
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -*) # unknown option
+    say "Unknown option »$1«"
+    usage
+    exit 1
+    ;;
+  *)
+    POSITIONAL+=("$1") # save it in an array for later
+    shift              # past argument
+    ;;
+  esac
+done
+
+source "$MONO_PLUGIN_DIR"/mono_commons
+debug=$OPT_DEBUG
+quiet=$OPT_QUIET
+
+require_work_tree
+ensure_clean
+
+if [[ $OPT_ALL -eq 0 ]]; then
+  REMOTE_NAME=${POSITIONAL[0]}
+  BRANCH=${POSITIONAL[1]}
+  if [[ ${#REMOTE_NAME} -eq 0 ]]; then
+    say "$MONO_COMMAND: Remote name is required"
+    exit 1
+  fi
+  push_subtree "$REMOTE_NAME" "$BRANCH"
+else
+  BRANCH=${POSITIONAL[0]}
+  while read remote_name prefix remote_url; do
+    push_subtree "$remote_name" "$BRANCH"
+  done < .git/subtrees
+fi
+
+debug "$MONO_COMMAND: Done."
+debug ""

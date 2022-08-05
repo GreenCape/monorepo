@@ -3,6 +3,7 @@
 usage() {
   cat <<-EOT
 Usage: mono drone <command> <repository>
+   or: mono drone <command> --all
    or: mono drone -h|--help
 
 Arguments:
@@ -10,9 +11,13 @@ Arguments:
     <command>     The sub command
     <repository>  The repository url or directory name of the subproject.
 
+Commands:
+    sign          Generate a signed .drone.yml from .drone.jsonnet
+
 Options:
 
-  -h|--help              Show this help text.
+  --all           Apply <command> to all subtrees.
+  -h|--help       Show this help text.
 
 EOT
 }
@@ -24,6 +29,7 @@ drone_sign () {
   DIRECTORY=$(get_prefix "$REMOTE_NAME")
   REMOTE_URL=$(get_repository_url "$REMOTE_NAME")
   REPOSITORY=$(basename $(dirname "${REMOTE_URL/%.git/}"))/$(basename "${REMOTE_URL/%.git/}")
+  say "$DIRECTORY"
   debug "cd $DIRECTORY"
   cd "$DIRECTORY" || exit
   debug "drone jsonnet --stream"
@@ -82,11 +88,11 @@ case "$SUB_COMMAND" in
       fi
       drone_sign "$REMOTE_NAME"
     else
-      while read remote_name prefix remote_url; do
+      while read prefix remote_name remote_url branch; do
         if [[ -f "$prefix"/.drone.jsonnet ]]; then
           drone_sign "$remote_name"
         fi
-      done < .git/subtrees
+      done < subtree.conf
     fi
     ;;
 esac

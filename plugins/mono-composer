@@ -141,11 +141,6 @@ function cmdMerge(): void
 
     foreach (getSubtrees() as $subtree) {
         $composerJson = $subtree['prefix'] . '/composer.json';
-        if (!file_exists($composerJson)) {
-            // No composer.json file, so nothing to do
-            continue;
-        }
-
         $localJson  = json_decode(file_get_contents($composerJson), true, 512, JSON_THROW_ON_ERROR);
         $globalJson = mergeSections($globalJson, $localJson, getSubtrees());
     }
@@ -176,6 +171,14 @@ function cmdMerge(): void
         );
     }
 
+    if (isset($globalJson['autoload']['files'])) {
+        $globalJson['autoload']['files'] = array_unique(($globalJson['autoload']['files']));
+    }
+
+    if (isset($globalJson['autoload-dev']['files'])) {
+        $globalJson['autoload-dev']['files'] = array_unique(($globalJson['autoload-dev']['files']));
+    }
+
     // Write to disk
     $jsonContent = str_replace('\\/', '/', json_encode($globalJson, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
     file_put_contents('composer.json', $jsonContent . "\n");
@@ -190,6 +193,7 @@ function getSubtrees()
             // No composer.json => nothing to do
             return $result;
         }
+
         $json                  = json_decode(
             file_get_contents($composerJson),
             true,
